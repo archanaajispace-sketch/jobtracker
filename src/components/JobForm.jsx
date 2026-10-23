@@ -20,7 +20,7 @@ const EMPTY_FORM = {
   notes: '',
 };
 
-function JobForm({ onSubmit, editingJob, onCancel }) {
+function JobForm({ onSubmit, editingJob, onCancel, submitting = false }) {
   // Local state for the form fields
   const [formData, setFormData] = useState(EMPTY_FORM);
 
@@ -168,8 +168,16 @@ function JobForm({ onSubmit, editingJob, onCancel }) {
       </div>
 
       {/* Submit */}
-      <button type="submit" className="btn btn--primary">
-        {editingJob ? 'Save Changes' : 'Add Application'}
+      <button
+        type="submit"
+        className="btn btn--primary"
+        disabled={submitting}
+      >
+        {submitting
+          ? 'Saving...'
+          : editingJob
+          ? 'Save Changes'
+          : 'Add Application'}
       </button>
 
       {/* Cancel (only visible when editing) */}

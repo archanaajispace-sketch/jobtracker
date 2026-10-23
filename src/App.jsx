@@ -1,169 +1,241 @@
-import { useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  onSnapshot,
+} from 'firebase/firestore';
+import { db } from './firebase/config';
+import { useAuth } from './context/AuthContext';
 import Header from './components/Header';
 import StatusCounters from './components/StatusCounters';
 import Toolbar from './components/Toolbar';
 import JobForm from './components/JobForm';
 import JobCardList from './components/JobCardList';
-
-// Initial sample applications so you can see the cards and counters in action immediately
-const INITIAL_JOBS = [
-  {
-    id: 1,
-    company: 'Google',
-    role: 'Frontend Developer',
-    location: 'Remote',
-    status: 'Applied',
-    date: '2026-10-20',
-    link: 'https://careers.google.com',
-    notes: 'Submitted resume and portfolio. Waiting for initial review.',
-  },
-  {
-    id: 2,
-    company: 'Microsoft',
-    role: 'Software Engineer',
-    location: 'Seattle, WA',
-    status: 'Interview',
-    date: '2026-10-18',
-    link: 'https://careers.microsoft.com',
-    notes: 'Technical round scheduled for next Tuesday at 3 PM.',
-  },
-  {
-    id: 3,
-    company: 'Netflix',
-    role: 'UI Engineer',
-    location: 'Los Gatos, CA',
-    status: 'Offer',
-    date: '2026-10-15',
-    link: 'https://jobs.netflix.com',
-    notes: 'Received offer! Reviewing compensation package.',
-  },
-];
+import ProtectedRoute from './components/ProtectedRoute';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import JobSearch from './pages/JobSearch';
 
 /**
- * App — the root component.
- * Keeps all job-application data in state and passes it down.
+ * TrackerDashboard — the main protected view.
+ * Only rendered when the user is logged in.
+ * Fetches and stores job applications under users/{uid}/applications in Firestore.
  */
-function App() {
-  // ---- State ----
+function TrackerDashboard() {
+  const { currentUser } = useAuth();
 
-  // Array of job objects — each has a unique `id`
-  const [jobs, setJobs] = useState(INITIAL_JOBS);
+  // Job applications loaded from Firestore
+  const [jobs, setJobs] = useState([]);
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [firestoreError, setFirestoreError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  // Which status to filter by ("All" = show everything)
+  // Search & Filter state
   const [filterStatus, setFilterStatus] = useState('All');
-
-  // Text the user types into the search box
   const [searchQuery, setSearchQuery] = useState('');
 
-  // When editing, this holds the job object; null = adding a new job
+  // Editing state
   const [editingJob, setEditingJob] = useState(null);
 
-  // ---- Handlers ----
+  // ---- 1. Real-time Firestore sync ----
+  useEffect(() => {
+    if (!currentUser) return;
 
-  /**
-   * addJob — called when the form is submitted for a NEW job.
-   * We give each job a unique id using Date.now().
-   */
-  const addJob = (jobData) => {
-    const newJob = { ...jobData, id: Date.now() };
-    setJobs((prev) => [newJob, ...prev]); // newest first
+    setLoadingJobs(true);
+    setFirestoreError('');
+
+    // Reference to this user's specific applications subcollection:
+    // users/{uid}/applications
+    const userAppsRef = collection(db, 'users', currentUser.uid, 'applications');
+
+    // onSnapshot listens for real-time additions, updates, and deletes
+    const unsubscribe = onSnapshot(
+      userAppsRef,
+      (snapshot) => {
+        const loadedJobs = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+
+        // Sort newest first by createdAt timestamp
+        loadedJobs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        setJobs(loadedJobs);
+        setLoadingJobs(false);
+      },
+      (error) => {
+        console.error('Firestore listener error:', error);
+        setFirestoreError(
+          'Could not load your applications. Please make sure Firebase Firestore is enabled in your Firebase console and security rules allow access.'
+        );
+        setLoadingJobs(false);
+      }
+    );
+
+    // Clean up listener when component unmounts or user changes
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // ---- 2. Add job to Firestore ----
+  const addJob = async (jobData) => {
+    if (!currentUser) return;
+    try {
+      setSubmitting(true);
+      setFirestoreError('');
+      const userAppsRef = collection(db, 'users', currentUser.uid, 'applications');
+      await addDoc(userAppsRef, {
+        ...jobData,
+        createdAt: Date.now(),
+      });
+    } catch (error) {
+      console.error('Error adding application:', error);
+      setFirestoreError('Failed to save application to Firestore. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  /**
-   * deleteJob — remove a job by its id.
-   */
-  const deleteJob = (id) => {
-    setJobs((prev) => prev.filter((job) => job.id !== id));
+  // ---- 3. Update job in Firestore ----
+  const updateJob = async (updatedData) => {
+    if (!currentUser || !editingJob) return;
+    try {
+      setSubmitting(true);
+      setFirestoreError('');
+      const jobDocRef = doc(db, 'users', currentUser.uid, 'applications', editingJob.id);
+      await updateDoc(jobDocRef, {
+        ...updatedData,
+        updatedAt: Date.now(),
+      });
+      setEditingJob(null); // exit edit mode
+    } catch (error) {
+      console.error('Error updating application:', error);
+      setFirestoreError('Failed to update application. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  /**
-   * startEditing — load a job into the form for editing.
-   */
+  // ---- 4. Delete job from Firestore ----
+  const deleteJob = async (id) => {
+    if (!currentUser) return;
+    try {
+      setFirestoreError('');
+      const jobDocRef = doc(db, 'users', currentUser.uid, 'applications', id);
+      await deleteDoc(jobDocRef);
+    } catch (error) {
+      console.error('Error deleting application:', error);
+      setFirestoreError('Failed to delete application. Please try again.');
+    }
+  };
+
   const startEditing = (job) => {
     setEditingJob(job);
-    // Scroll to the form so the user sees it
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  /**
-   * updateJob — called when the form is submitted while editing.
-   * Replaces the old job with the updated one.
-   */
-  const updateJob = (updatedData) => {
-    setJobs((prev) =>
-      prev.map((job) =>
-        job.id === editingJob.id ? { ...updatedData, id: editingJob.id } : job
-      )
-    );
-    setEditingJob(null); // exit edit mode
-  };
-
-  /**
-   * cancelEditing — discard changes and go back to "add" mode.
-   */
   const cancelEditing = () => {
     setEditingJob(null);
   };
 
-  // ---- Filtering & Searching ----
-
+  // ---- 5. Filtering and Search ----
   const filteredJobs = jobs.filter((job) => {
-    // Status filter
     const matchesStatus =
       filterStatus === 'All' || job.status === filterStatus;
-
-    // Search by company name (case-insensitive)
-    const matchesSearch = job.company
+    const matchesSearch = (job.company || '')
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
-
     return matchesStatus && matchesSearch;
   });
 
-  // ---- Render ----
+  return (
+    <>
+      {/* Firestore Error Alert */}
+      {firestoreError && (
+        <div className="alert-error" role="alert">
+          {firestoreError}
+        </div>
+      )}
 
+      {/* Status Counters */}
+      <StatusCounters
+        jobs={jobs}
+        activeFilter={filterStatus}
+        onSelectStatus={setFilterStatus}
+      />
+
+      {/* Toolbar for search and filter */}
+      <Toolbar
+        filterStatus={filterStatus}
+        onFilterChange={setFilterStatus}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
+
+      {/* Main Grid: Form on left, Applications on right */}
+      <div className="main-grid">
+        <JobForm
+          onSubmit={editingJob ? updateJob : addJob}
+          editingJob={editingJob}
+          onCancel={cancelEditing}
+          submitting={submitting}
+        />
+
+        {loadingJobs ? (
+          <div className="loading-card">
+            <div className="spinner"></div>
+            <p>Loading your applications from database...</p>
+          </div>
+        ) : (
+          <JobCardList
+            jobs={filteredJobs}
+            onDelete={deleteJob}
+            onEdit={startEditing}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+/**
+ * App — Root router configuring public auth routes and protected tracker dashboard.
+ */
+function App() {
   return (
     <div className="container">
       <Header />
 
       <Routes>
-        {/* Main (and only) page */}
+        {/* Public authentication routes */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+
+        {/* Protected Dashboard Route */}
         <Route
           path="/"
           element={
-            <>
-              {/* Coloured chips showing counts per status (click to filter!) */}
-              <StatusCounters
-                jobs={jobs}
-                activeFilter={filterStatus}
-                onSelectStatus={setFilterStatus}
-              />
-
-              {/* Search box + status dropdown */}
-              <Toolbar
-                filterStatus={filterStatus}
-                onFilterChange={setFilterStatus}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-              />
-
-              {/* Two-column layout: form on the left, cards on the right */}
-              <div className="main-grid">
-                <JobForm
-                  onSubmit={editingJob ? updateJob : addJob}
-                  editingJob={editingJob}
-                  onCancel={cancelEditing}
-                />
-                <JobCardList
-                  jobs={filteredJobs}
-                  onDelete={deleteJob}
-                  onEdit={startEditing}
-                />
-              </div>
-            </>
+            <ProtectedRoute>
+              <TrackerDashboard />
+            </ProtectedRoute>
           }
         />
+
+        {/* Protected Live Job Search Route */}
+        <Route
+          path="/search"
+          element={
+            <ProtectedRoute>
+              <JobSearch />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Fallback for unknown paths */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );
