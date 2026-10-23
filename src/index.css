@@ -742,7 +742,7 @@ a:hover {
 .search-bar {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .search-bar__input {
@@ -769,6 +769,56 @@ a:hover {
   white-space: nowrap;
 }
 
+/* Quick Search Buttons Row */
+.quick-search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.quick-search-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.quick-search-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-search-chip {
+  padding: 6px 14px;
+  border-radius: 100px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.quick-search-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.quick-search-chip--active {
+  background: linear-gradient(135deg, rgba(108, 140, 255, 0.25), rgba(169, 124, 248, 0.25));
+  color: #fff;
+  border-color: var(--accent-main);
+  box-shadow: 0 0 12px rgba(108, 140, 255, 0.3);
+}
+
 .search-results-info {
   font-size: 0.9rem;
   color: var(--text-secondary);
@@ -777,6 +827,24 @@ a:hover {
 
 .search-results-info strong {
   color: var(--accent-main);
+}
+
+.empty-state__message {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  max-width: 480px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.empty-state__message strong {
+  color: var(--text-primary);
+}
+
+.live-job-card__tag--tech {
+  background: rgba(108, 140, 255, 0.08);
+  border-color: rgba(108, 140, 255, 0.2);
+  color: #a5b4fc;
 }
 
 /* Live Job Cards Grid */

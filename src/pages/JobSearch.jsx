@@ -3,24 +3,34 @@ import { collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 
+// Quick search topic suggestions
+const QUICK_SEARCH_TOPICS = [
+  'Flutter',
+  'React',
+  'Frontend',
+  'Python',
+  'Cloud',
+  'Support',
+];
+
 /**
- * JobSearch Page — fetches live remote jobs from the Remotive API
- * and allows logged-in users to save them directly to their Firestore tracker.
+ * JobSearch Page — fetches live remote software development jobs from Remotive API,
+ * filters results by title or tags, and lets users save them to their Firestore tracker.
  */
 function JobSearch() {
   const { currentUser } = useAuth();
 
-  // Search input state (default: "frontend")
+  // Search input and active search keyword
   const [searchInput, setSearchInput] = useState('frontend');
   const [activeKeyword, setActiveKeyword] = useState('frontend');
 
-  // Remotive API state
+  // Remotive API raw response & UI states
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isCorsBlocked, setIsCorsBlocked] = useState(false);
 
-  // Firestore sync state to avoid saving duplicates
+  // Firestore sync to prevent saving the same job twice
   const [savedJobUrls, setSavedJobUrls] = useState(new Set());
   const [savingJobId, setSavingJobId] = useState(null);
 
@@ -28,7 +38,6 @@ function JobSearch() {
   useEffect(() => {
     if (!currentUser) return;
 
-    // Listen to user's saved applications
     const appsRef = collection(db, 'users', currentUser.uid, 'applications');
     const unsubscribe = onSnapshot(
       appsRef,
@@ -42,14 +51,14 @@ function JobSearch() {
         setSavedJobUrls(urls);
       },
       (err) => {
-        console.error('Error loading existing applications in JobSearch:', err);
+        console.error('Error loading saved applications:', err);
       }
     );
 
     return () => unsubscribe();
   }, [currentUser]);
 
-  // ---- 2. Fetch live jobs from Remotive API using async/await and useEffect ----
+  // ---- 2. Fetch from Remotive API with category=software-dev and limit=50 ----
   useEffect(() => {
     let isCancelled = false;
 
@@ -59,9 +68,10 @@ function JobSearch() {
       setIsCorsBlocked(false);
 
       try {
-        const url = `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(
+        // Query category=software-dev with limit=50
+        const url = `https://remotive.com/api/remote-jobs?category=software-dev&search=${encodeURIComponent(
           activeKeyword
-        )}&limit=15`;
+        )}&limit=50`;
 
         const response = await fetch(url);
 
@@ -77,7 +87,6 @@ function JobSearch() {
       } catch (err) {
         console.error('Failed to fetch from Remotive API:', err);
         if (!isCancelled) {
-          // Detect CORS or Network failure (e.g. Failed to fetch TypeError)
           const isNetworkOrCors =
             err.name === 'TypeError' && err.message.toLowerCase().includes('fetch');
           setIsCorsBlocked(isNetworkOrCors);
@@ -99,15 +108,37 @@ function JobSearch() {
     };
   }, [activeKeyword]);
 
-  // ---- 3. Handle search form submit ----
+  // ---- 3. Filter jobs in JavaScript: title or tags must contain keyword ----
+  const filteredJobs = jobs.filter((job) => {
+    const keyword = activeKeyword.toLowerCase().trim();
+    if (!keyword) return true;
+
+    // Check title (case-insensitive)
+    const titleMatches = (job.title || '').toLowerCase().includes(keyword);
+
+    // Check tags (case-insensitive)
+    const tagsMatch =
+      Array.isArray(job.tags) &&
+      job.tags.some((tag) => (tag || '').toLowerCase().includes(keyword));
+
+    return titleMatches || tagsMatch;
+  });
+
+  // ---- 4. Form and Quick-Search handlers ----
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    if (searchInput.trim()) {
-      setActiveKeyword(searchInput.trim());
+    const trimmed = searchInput.trim();
+    if (trimmed) {
+      setActiveKeyword(trimmed);
     }
   };
 
-  // ---- 4. Save a job to Firestore (Preventing duplicate saves) ----
+  const handleQuickSearch = (topic) => {
+    setSearchInput(topic);
+    setActiveKeyword(topic);
+  };
+
+  // ---- 5. Save a job to Firestore (Preventing duplicate saves) ----
   const handleSaveToTracker = async (job) => {
     if (!currentUser) return;
 
@@ -127,7 +158,7 @@ function JobSearch() {
         status: 'Applied',
         date: new Date().toISOString().split('T')[0], // today's date YYYY-MM-DD
         link: job.url || '',
-        notes: `Imported from Remotive live search. Category: ${job.category || 'Tech'}`,
+        notes: `Imported from Remotive live search. Category: ${job.category || 'Software Dev'}`,
         remotiveId: String(job.id),
         createdAt: Date.now(),
       });
@@ -141,11 +172,11 @@ function JobSearch() {
 
   return (
     <div className="search-page">
-      {/* Page Title & Intro */}
+      {/* Header Info */}
       <div className="search-page__header">
-        <h2 className="search-page__title">Live Remote Job Search 🌐</h2>
+        <h2 className="search-page__title">Live Remote Software Jobs 🌐</h2>
         <p className="search-page__subtitle">
-          Discover remote jobs from the Remotive API and save them directly to your tracker with one click.
+          Real-time developer jobs from Remotive API filtered by title and skill tags.
         </p>
       </div>
 
@@ -155,7 +186,7 @@ function JobSearch() {
           id="remotive-search-input"
           type="text"
           className="search-bar__input"
-          placeholder="Search by role or skill (e.g. frontend, react, python)..."
+          placeholder="Search by role or tech (e.g. Flutter, React, Frontend, Python)..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -164,13 +195,36 @@ function JobSearch() {
         </button>
       </form>
 
-      {/* CORS Alert Banner (if browser blocks cross-origin requests) */}
+      {/* Quick-Search Filter Buttons */}
+      <div className="quick-search-row">
+        <span className="quick-search-label">Quick search:</span>
+        <div className="quick-search-chips">
+          {QUICK_SEARCH_TOPICS.map((topic) => {
+            const isActive =
+              activeKeyword.toLowerCase() === topic.toLowerCase();
+            return (
+              <button
+                key={topic}
+                type="button"
+                className={`quick-search-chip ${
+                  isActive ? 'quick-search-chip--active' : ''
+                }`}
+                onClick={() => handleQuickSearch(topic)}
+              >
+                {topic}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* CORS Alert Banner */}
       {isCorsBlocked && (
         <div className="alert-error" role="alert">
           <div>
             <strong>⚠️ CORS / Network Notice:</strong> Your browser or network may have blocked the request to Remotive API.
             <div style={{ marginTop: '6px', fontSize: '0.85rem' }}>
-              <strong>Suggested Fix:</strong> Remotive sends <code>access-control-allow-origin: *</code> by default, but if you have an adblocker or strict browser extensions enabled, whitelist <code>remotive.com</code> or configure a local proxy in <code>vite.config.js</code>.
+              <strong>Suggested Fix:</strong> Remotive sends <code>access-control-allow-origin: *</code>, but if an adblocker or privacy extension blocks it, whitelist <code>remotive.com</code>.
             </div>
           </div>
         </div>
@@ -187,29 +241,31 @@ function JobSearch() {
       {loading && (
         <div className="loading-card">
           <div className="spinner"></div>
-          <p>Fetching live remote jobs for "{activeKeyword}"...</p>
+          <p>Fetching software jobs for "{activeKeyword}"...</p>
         </div>
       )}
 
-      {/* Results Header */}
+      {/* Results Header (Showing count of matching jobs) */}
       {!loading && !error && (
         <div className="search-results-info">
-          Found <strong>{jobs.length}</strong> live remote jobs for "<em>{activeKeyword}</em>"
+          Found <strong>{filteredJobs.length}</strong> matching remote job{filteredJobs.length === 1 ? '' : 's'} for "<em>{activeKeyword}</em>"
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && !error && jobs.length === 0 && (
+      {/* Friendly Empty State if no jobs match title or tags */}
+      {!loading && !error && filteredJobs.length === 0 && (
         <div className="empty-state">
           <div className="empty-state__icon">🔍</div>
-          <p>No remote jobs found matching "{activeKeyword}". Try another keyword!</p>
+          <p className="empty-state__message">
+            No jobs found for this keyword. Try <strong>Flutter</strong>, <strong>React</strong>, <strong>Frontend</strong>, <strong>Python</strong> or <strong>Cloud</strong>.
+          </p>
         </div>
       )}
 
       {/* Job Cards Grid */}
-      {!loading && jobs.length > 0 && (
+      {!loading && filteredJobs.length > 0 && (
         <div className="live-jobs-grid">
-          {jobs.map((job) => {
+          {filteredJobs.map((job) => {
             const isAlreadySaved =
               savedJobUrls.has(job.url) || savedJobUrls.has(String(job.id));
             const isSavingThis = savingJobId === job.id;
@@ -233,6 +289,7 @@ function JobSearch() {
                   </div>
                 </div>
 
+                {/* Location and Category Meta */}
                 <div className="live-job-card__meta">
                   <span className="live-job-card__tag">
                     📍 {job.candidate_required_location || 'Worldwide Remote'}
@@ -242,11 +299,13 @@ function JobSearch() {
                       💼 {job.job_type.replace('_', ' ')}
                     </span>
                   )}
-                  {job.category && (
-                    <span className="live-job-card__tag">
-                      🏷️ {job.category}
-                    </span>
-                  )}
+                  {/* Display top relevant tags if available */}
+                  {Array.isArray(job.tags) &&
+                    job.tags.slice(0, 4).map((tag) => (
+                      <span key={tag} className="live-job-card__tag live-job-card__tag--tech">
+                        🏷️ {tag}
+                      </span>
+                    ))}
                 </div>
 
                 <div className="live-job-card__actions">
