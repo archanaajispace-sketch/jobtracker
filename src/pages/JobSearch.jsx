@@ -108,20 +108,25 @@ function JobSearch() {
     };
   }, [activeKeyword]);
 
-  // ---- 3. Filter jobs in JavaScript: title or tags must contain keyword ----
+  // ---- 3. Filter jobs in JavaScript: title, company name, or tags must contain keyword ----
   const filteredJobs = jobs.filter((job) => {
     const keyword = activeKeyword.toLowerCase().trim();
     if (!keyword) return true;
 
-    // Check title (case-insensitive)
+    // 1. Check title (case-insensitive)
     const titleMatches = (job.title || '').toLowerCase().includes(keyword);
 
-    // Check tags (case-insensitive)
+    // 2. Check company name (case-insensitive)
+    const companyMatches = (job.company_name || '')
+      .toLowerCase()
+      .includes(keyword);
+
+    // 3. Check tags (case-insensitive)
     const tagsMatch =
       Array.isArray(job.tags) &&
       job.tags.some((tag) => (tag || '').toLowerCase().includes(keyword));
 
-    return titleMatches || tagsMatch;
+    return titleMatches || companyMatches || tagsMatch;
   });
 
   // ---- 4. Form and Quick-Search handlers ----
@@ -176,7 +181,7 @@ function JobSearch() {
       <div className="search-page__header">
         <h2 className="search-page__title">Live Remote Software Jobs 🌐</h2>
         <p className="search-page__subtitle">
-          Real-time developer jobs from Remotive API filtered by title and skill tags.
+          Real-time developer jobs from Remotive API filtered by title, company name, and skill tags.
         </p>
       </div>
 
@@ -186,7 +191,7 @@ function JobSearch() {
           id="remotive-search-input"
           type="text"
           className="search-bar__input"
-          placeholder="Search by role or tech (e.g. Flutter, React, Frontend, Python)..."
+          placeholder="Search by role, company name, or tech (e.g. Lemon.io, React, Frontend)..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
